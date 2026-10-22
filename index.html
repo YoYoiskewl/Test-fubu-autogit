@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fuck Buddies PT.3</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<!-- Fallback fonts, used until you add your Spilled Ink file -->
+<link href="https://fonts.googleapis.com/css2?family=Caveat+Brush&family=Courier+Prime:ital@0;1&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- Logo: a steaming cup. Reused in the nav and pressed into the vinyl. -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="fb-logo" viewBox="0 0 24 24">
+    <g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M4.5 10h12v4a5 5 0 0 1-5 5h-2a5 5 0 0 1-5-5z"/>
+      <path d="M16.5 11h1.2a2.4 2.4 0 0 1 0 4.8h-1.4"/>
+      <path d="M8.5 3.2c-1.2 1.6 1.2 2.6 0 4.4M12.5 3.2c-1.2 1.6 1.2 2.6 0 4.4"/>
+    </g>
+  </symbol>
+</svg>
+
+<header class="nav">
+  <a href="#home" class="logo"><svg class="logo-mark" aria-hidden="true"><use href="#fb-logo"/></svg>Fuck Buddies</a>
+  <nav>
+    <a href="#gatherings">Gatherings</a>
+    <a href="#crew">The crew</a>
+    <a href="#wall">Wall</a>
+  </nav>
+  <div class="auth-area">
+    <span id="hello" hidden></span>
+    <button class="btn small" id="authBtn">Log in</button>
+  </div>
+</header>
+
+<!-- PAGE ONE -->
+<section class="hero" id="home">
+  <div class="hero-text">
+    <p class="whisper">knock twice. the good table's saved.</p>
+    <h1>Fuck<br>Buddies</h1>
+    <p class="lead">Our little back room for coffee, records and bad decisions. See what's brewing, say you're in, and bring someone.</p>
+    <div class="cta-row">
+      <a href="#gatherings" class="btn">See next gathering</a>
+      <button class="btn ghost" id="spinToggle" aria-pressed="false">Pick a record</button>
+    </div>
+
+    <form id="songForm" class="song-form">
+      <input id="songUrl" placeholder="Paste a Spotify song, album or playlist link" aria-label="Spotify link" autocomplete="off">
+      <button class="btn small" type="submit">Spin it</button>
+    </form>
+    <p class="song-status" id="songStatus" aria-live="polite">Paste a Spotify link, then click the record to play or pause. Drag it to scratch.</p>
+    <button class="link-btn spotify-connect" id="spotifyConnect" type="button">Connect Spotify for full songs</button>
+    <div class="embed-wrap" id="embedWrap" hidden><div id="spotifyEmbed"></div></div>
+  </div>
+
+  <div class="hero-art">
+    <div class="sleeve" aria-hidden="true"></div>
+    <div class="vinyl" id="vinyl" role="button" tabindex="0" aria-pressed="false"
+         aria-label="Record player. Press to play or pause, drag to scratch." title="Click to play or pause. Drag to scratch.">
+      <div class="disc" id="disc">
+        <svg class="ring" viewBox="0 0 200 200" aria-hidden="true">
+          <defs><path id="ringPath" d="M100,100 m-80,0 a80,80 0 1,1 160,0 a80,80 0 1,1 -160,0"/></defs>
+          <g transform="translate(.7 .7)">
+            <text class="deboss"><textPath href="#ringPath" textLength="494" lengthAdjust="spacing">FUCK BUDDIES • SIDE A • EST. OVER A SPILLED LATTE • </textPath></text>
+            <use href="#fb-logo" class="stamp-dark" x="88" y="30" width="24" height="24"/>
+            <use href="#fb-logo" class="stamp-dark" x="88" y="146" width="24" height="24" transform="rotate(180 100 158)"/>
+          </g>
+          <text class="emboss"><textPath href="#ringPath" textLength="494" lengthAdjust="spacing">FUCK BUDDIES • SIDE A • EST. OVER A SPILLED LATTE • </textPath></text>
+          <use href="#fb-logo" class="stamp-light" x="88" y="30" width="24" height="24"/>
+          <use href="#fb-logo" class="stamp-light" x="88" y="146" width="24" height="24" transform="rotate(180 100 158)"/>
+        </svg>
+        <div class="label" id="label"><span>Side A</span><span>Fuck Buddies</span></div>
+      </div>
+    </div>
+    <div class="arm" id="arm" aria-hidden="true"></div>
+    <div class="steam" aria-hidden="true"><i></i><i></i><i></i></div>
+  </div>
+</section>
+
+<main>
+  <section class="section" id="gatherings">
+    <h2>Gatherings</h2>
+    <p class="sub">Tap "I'm in" and we'll count you. Tap again if plans change.</p>
+    <form id="eventForm" class="event-form" hidden>
+      <h3>Plan a gathering</h3>
+      <label>Title<input id="evTitle" maxlength="60" placeholder="Matcha &amp; vinyl night" required></label>
+      <label>Date &amp; time<input id="evDate" type="datetime-local" required></label>
+      <label>Place<input id="evPlace" maxlength="80" placeholder="The back room" required></label>
+      <label>Hosted by<input id="evHost" maxlength="40" placeholder="Who's hosting?" required></label>
+      <p class="error" id="evError" role="alert"></p>
+      <button class="btn" type="submit">Add gathering</button>
+    </form>
+    <p class="gate" id="eventGate">Log in to plan a gathering.</p>
+    <div class="grid" id="events"></div>
+  </section>
+
+  <section class="section dark" id="crew">
+    <h2>The crew</h2>
+    <p class="sub">Who's usually at the table.</p>
+    <div class="crew" id="crewList"></div>
+  </section>
+
+  <section class="section" id="wall">
+    <h2>The wall</h2>
+    <p class="sub">Leave a note. Suggest a playlist, a spot, a snack.</p>
+    <p class="gate" id="wallGate">Log in to pin a note.</p>
+    <form id="noteForm" class="note-form">
+      <input id="noteText" placeholder="Write something (or add a caption)" maxlength="120">
+      <label class="file-pick">
+        <input id="noteFile" type="file" accept="image/*,video/*">
+        <span id="noteFileName">+ Photo or video</span>
+      </label>
+      <button class="btn" type="submit" id="noteSubmit">Pin it</button>
+      <p class="error" id="noteError" role="alert"></p>
+    </form>
+    <div class="notes" id="notes"></div>
+  </section>
+</main>
+
+<footer>
+  <p>Fuck Buddies &middot; est. over a spilled latte</p>
+</footer>
+
+<dialog id="authDialog">
+  <form id="authForm">
+    <p class="hint">Welcome in. Log in to join gatherings and pin notes.</p>
+    <div class="tabs" role="tablist">
+      <button type="button" class="tab active" data-mode="login">Log in</button>
+      <button type="button" class="tab" data-mode="signup">Sign up</button>
+    </div>
+    <label>Email<input id="authEmail" type="email" autocomplete="email" required></label>
+    <label id="userLabel" hidden>Username<input id="authUser" autocomplete="nickname" maxlength="16"></label>
+    <label>Password<input id="authPass" type="password" autocomplete="current-password" minlength="6" required></label>
+    <p class="error" id="authError" role="alert"></p>
+    <div class="cta-row">
+      <button class="btn" type="submit" id="authSubmit">Log in</button>
+      <button class="btn ghost" type="button" id="authCancel">Just looking</button>
+    </div>
+  </form>
+</dialog>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="script.js"></script>
+<script src="https://open.spotify.com/embed/iframe-api/v1" async></script>
+</body>
+</html>
