@@ -47,11 +47,25 @@
       <button class="btn ghost" id="spinToggle" aria-pressed="false">Pick a record</button>
     </div>
 
-    <form id="songForm" class="song-form">
-      <input id="songUrl" placeholder="Paste a Spotify song, album or playlist link" aria-label="Spotify link" autocomplete="off">
-      <button class="btn small" type="submit">Spin it</button>
-    </form>
-    <p class="song-status" id="songStatus" aria-live="polite">Paste a Spotify link, then click the record to play or pause. Drag it to scratch.</p>
+    <div class="now" id="now" aria-live="polite">
+      <div class="now-art" id="nowArt" aria-hidden="true"></div>
+      <div class="now-text">
+        <p class="now-kicker">On the turntable, for everyone</p>
+        <p class="now-title" id="nowTitle">Nothing on the turntable yet</p>
+        <p class="now-by" id="nowBy"></p>
+      </div>
+      <span class="eq" aria-hidden="true"><i></i><i></i><i></i></span>
+    </div>
+
+    <div class="finder" id="finder" hidden>
+      <form id="songForm" class="song-form" role="search">
+        <input id="songQuery" type="search" role="combobox" placeholder="Search a song or album to put on" aria-label="Search Spotify"
+               aria-autocomplete="list" aria-controls="songResults" aria-expanded="false" autocomplete="off" spellcheck="false">
+      </form>
+      <ul class="results" id="songResults" role="listbox" aria-label="Search results" hidden></ul>
+    </div>
+    <p class="gate" id="songGate">Log in to pick the record. Everyone can listen.</p>
+    <p class="song-status" id="songStatus" aria-live="polite">Click the record to tune in. Drag it to scratch.</p>
     <button class="link-btn spotify-connect" id="spotifyConnect" type="button">Connect Spotify for full songs</button>
     <div class="embed-wrap" id="embedWrap" hidden><div id="spotifyEmbed"></div></div>
   </div>

@@ -200,6 +200,9 @@ function render() {
   $("wallGate").hidden = !!user;
   $("eventForm").hidden = !user;
   $("eventGate").hidden = !!user;
+  $("finder").hidden = !user;
+  $("songGate").hidden = !!user;
+  if (!current) renderNow(null);
   if (user && !$("evHost").value) $("evHost").value = usernameOf(user);
 }
 
@@ -366,10 +369,13 @@ const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
 const DEFAULT_TINT = "#8a9a5b";
 
 let controller = null, apiReady = null, playing = false, hasRecord = false, pendingPlay = false;
+let current = null;                  // the shared record (a now_playing row) this browser has loaded
 let angle = 0, speed = 0;            // degrees, degrees per second
 let dragging = false, moved = 0, lastPointerAngle = 0, lastT = 0, flick = 0;
 
 const say = msg => { statusEl.textContent = msg; };
+// Only ever paint Spotify's own cover-art host, since this value comes from the shared database
+const safeArt = u => (typeof u === "string" && /^https:\/\/[a-z0-9.-]+\.scdn\.co\//i.test(u)) ? u : "";
 
 function setPlaying(p) {
   playing = p;
@@ -377,6 +383,7 @@ function setPlaying(p) {
   vinyl.setAttribute("aria-pressed", String(p));
   toggle.setAttribute("aria-pressed", String(p));
   toggle.textContent = !hasRecord ? "Pick a record" : p ? "Pause the record" : "Play the record";
+  $("now").classList.toggle("live", p);
 }
 
 // Spin loop: 33 rpm while playing, coasts to a stop when paused, follows your hand while dragging
@@ -429,11 +436,22 @@ vinyl.addEventListener("keydown", e => {
   if (e.key === "Enter" || e.key === " ") { e.preventDefault(); togglePlayback(); }
 });
 
+// If the song was picked a minute ago, tuning in lands you where everyone else is (full-song player only)
+function tuneOffset(rec) {
+  if (rec?.spotify_type !== "track" || !rec.duration_ms || !rec.started_at) return 0;
+  const el = Date.now() - Date.parse(rec.started_at);
+  return el > 0 && el < rec.duration_ms - 3000 ? el : 0;
+}
+
 function togglePlayback() {
-  if (!hasRecord) { say("Paste a Spotify link first."); $("songUrl").focus(); return; }
+  if (!hasRecord) {
+    if (user) { say("Search for a song to put on."); $("songQuery").focus(); }
+    else say("Nothing's playing yet. Log in to put the first record on.");
+    return;
+  }
   if (sdk.active && sdk.ready) {
     sdk.player.activateElement();                 // lets mobile browsers allow audio
-    if (sdk.started) sdk.player.togglePlay(); else sdkPlay(sdk.current);
+    if (sdk.started) sdk.player.togglePlay(); else sdkPlay(sdk.current, tuneOffset(sdk.current));
     return;
   }
   if (sdk.active) { say("Warming up the player..."); return; }
@@ -454,8 +472,8 @@ const tok = {
   clear() { try { localStorage.removeItem(TOK_KEY); } catch {} },
 };
 const spotifyConnected = () => spotifyConfigured() && !!tok.get()?.refresh;
-const sdk = { player: null, device: null, ready: false, active: false, started: false, current: null, loading: null, art: "" };
-let sdkNote = "";
+const sdk = { player: null, device: null, ready: false, active: false, started: false, current: null, loading: null };
+let sdkNote = "", heard = "";
 
 function paintConnect() {
   connectBtn.textContent = spotifyConnected() ? "Spotify connected. Disconnect" : "Connect Spotify for full songs";
@@ -512,9 +530,10 @@ const spotifyCallback = (async () => {
   if (q.has("error")) { say("Spotify connection was cancelled."); return; }
   try {
     await tokenRequest({ grant_type: "authorization_code", code: q.get("code"), redirect_uri: SPOTIFY_REDIRECT, code_verifier: saved.verifier });
-    say("Spotify connected. Full songs unlocked. Paste a link and spin it.");
+    say("Spotify connected. Full songs unlocked. Click the record to tune in.");
   } catch (e) { say("Couldn't connect Spotify: " + e.message); }
 })();
+spotifyCallback.then(paintConnect);
 connectBtn.addEventListener("click", () => {
   if (!spotifyConnected()) return spotifyLogin();
   tok.clear(); try { sdk.player?.disconnect(); } catch {}
@@ -536,17 +555,9 @@ function startSdk() {
       player.addListener("player_state_changed", st => {
         if (!st) return;
         const p = !st.paused, t = st.track_window.current_track;
-        if (t) {
-          currentTitle = `${t.name} by ${t.artists.map(a => a.name).join(", ")}`;
-          const art = t.album?.images?.[0]?.url || "";
-          if (art && art !== sdk.art) {
-            sdk.art = art;
-            labelEl.style.backgroundImage = `url("${art}")`; labelEl.classList.add("has-art");
-            artColor(art).then(c => c && hero.style.setProperty("--tint", c));
-          }
-        }
+        if (t) heard = `${t.name} by ${t.artists.map(a => a.name).join(", ")}`;
         if (p !== playing) setPlaying(p);
-        say(p ? `Now spinning: ${currentTitle}` : "Paused. Click the record to play, drag it to scratch.");
+        say(p ? `Tuned in${heard ? ": " + heard : "."}` : "Paused. Click the record to tune back in, drag it to scratch.");
       });
       player.connect().then(ok => { if (!ok) reject(new Error("Couldn't reach Spotify.")); });
     };
@@ -558,10 +569,11 @@ function startSdk() {
   sdk.loading.catch(() => {});
   return sdk.loading;
 }
-async function sdkPlay(spot) {
+async function sdkPlay(rec, offset = 0) {
   const token = await spotifyToken();
   if (!token) { say("Spotify login expired. Reconnect."); paintConnect(); return; }
-  const body = spot.type === "track" || spot.type === "episode" ? { uris: [spot.uri] } : { context_uri: spot.uri };
+  const single = rec.spotify_type === "track" || rec.spotify_type === "episode";
+  const body = single ? { uris: [rec.spotify_uri], ...(offset > 0 && { position_ms: Math.round(offset) }) } : { context_uri: rec.spotify_uri };
   const r = await fetch("https://api.spotify.com/v1/me/player/play?device_id=" + sdk.device, {
     method: "PUT", headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" }, body: JSON.stringify(body),
   });
@@ -573,7 +585,7 @@ async function sdkPlay(spot) {
 
 // Spotify link -> URI
 function parseSpotify(input) {
-  const s = input.trim();
+  const s = String(input || "").trim();
   let m = s.match(/^spotify:(track|album|playlist|episode|show|artist):([A-Za-z0-9]+)$/);
   if (!m) m = s.match(/open\.spotify\.com\/(?:intl-[a-z-]+\/)?(track|album|playlist|episode|show|artist)\/([A-Za-z0-9]+)/);
   return m ? { type: m[1], id: m[2], uri: `spotify:${m[1]}:${m[2]}`, url: `https://open.spotify.com/${m[1]}/${m[2]}` } : null;
@@ -607,32 +619,23 @@ function artColor(src) {
     img.src = src;
   });
 }
-async function dressRecord(spot) {
-  let title = "", thumb = "";
-  try {
-    const res = await fetch("https://open.spotify.com/oembed?url=" + encodeURIComponent(spot.url));
-    if (res.ok) { const j = await res.json(); title = j.title || ""; thumb = j.thumbnail_url || ""; }
-  } catch {}
-  if (thumb) {
-    labelEl.style.backgroundImage = `url("${thumb}")`;
-    labelEl.classList.add("has-art");
-  } else {
-    labelEl.style.backgroundImage = "";
-    labelEl.classList.remove("has-art");
-  }
-  const tint = (thumb && await artColor(thumb)) || (title ? titleColor(title) : DEFAULT_TINT);
+// Put the record's cover on the label and tint the page to match
+async function dress(rec) {
+  const art = safeArt(rec.art_url);
+  if (art) { labelEl.style.backgroundImage = `url("${art}")`; labelEl.classList.add("has-art"); }
+  else { labelEl.style.backgroundImage = ""; labelEl.classList.remove("has-art"); }
+  const tint = (art && await artColor(art)) || (rec.title ? titleColor(rec.title) : DEFAULT_TINT);
   hero.style.setProperty("--tint", tint);
-  return title;
 }
 
 // Spotify iFrame API (loaded async at the bottom of the page)
 apiReady = new Promise(resolve => { window.onSpotifyIframeApiReady = resolve; });
 let loadToken = 0;
-async function loadRecord(input, { autoplay = true } = {}) {
-  const spot = parseSpotify(input);
-  if (!spot) { say("That doesn't look like a Spotify song, album or playlist link."); return false; }
+async function loadRecord(rec, { autoplay = true } = {}) {
+  const spot = parseSpotify(rec.spotify_uri);
+  if (!spot) return;
   const token = ++loadToken;
-  hasRecord = true;
+  current = rec; hasRecord = true; heard = "";
   setPlaying(false);
   say("Dropping the needle...");
 
@@ -642,23 +645,22 @@ async function loadRecord(input, { autoplay = true } = {}) {
     try { await startSdk(); sdkNote = ""; }
     catch (e) { useSdk = false; sdkNote = " (" + e.message + " Using the 30-second preview player.)"; }
   }
-  if (token !== loadToken) return true;
+  if (token !== loadToken) return;
   if (useSdk) {
     sdk.active = true;
     $("embedWrap").hidden = true;
-    const title = await dressRecord(spot);
-    if (token !== loadToken) return true;
-    currentTitle = title; sdk.current = spot; sdk.started = false; sdk.art = "";
-    try { localStorage.setItem("fb-record", spot.url); } catch {}
-    if (autoplay) { say(title ? `Loaded: ${title}` : "Loaded."); await sdkPlay(spot); }
-    else say(title ? `Loaded: ${title}. Click the record to play.` : "Loaded. Click the record to play.");
-    return true;
+    await dress(rec);
+    if (token !== loadToken) return;
+    sdk.current = rec; sdk.started = false;
+    if (autoplay) { say("Tuned in."); await sdkPlay(rec, tuneOffset(rec)); }
+    else say("Click the record to tune in.");
+    return;
   }
 
   sdk.active = false;
   $("embedWrap").hidden = false;
-  const [IFrameAPI, title] = await Promise.all([apiReady, dressRecord(spot)]);
-  if (token !== loadToken) return true;
+  const [IFrameAPI] = await Promise.all([apiReady, dress(rec)]);
+  if (token !== loadToken) return;
   if (!controller) {
     IFrameAPI.createController($("spotifyEmbed"), { uri: spot.uri, width: "100%", height: spot.type === "track" ? 152 : 232 }, c => {
       controller = c;
@@ -666,8 +668,7 @@ async function loadRecord(input, { autoplay = true } = {}) {
         const p = !e.data.isPaused;
         if (p !== playing) {
           setPlaying(p);
-          if (p) say(`Now spinning${currentTitle ? ": " + currentTitle : ""}`);
-          else say("Paused. Click the record to play, drag it to scratch.");
+          say(p ? "Tuned in." : "Paused. Click the record to tune back in, drag it to scratch.");
         }
       });
       c.addListener("ready", () => { if (autoplay || pendingPlay) { pendingPlay = false; c.play(); } });
@@ -676,29 +677,167 @@ async function loadRecord(input, { autoplay = true } = {}) {
     controller.loadUri(spot.uri);
     if (autoplay) controller.play();
   }
-  currentTitle = title;
-  say((title ? `Loaded: ${title}. Press play on the player if it doesn't start.` : "Loaded. Press play on the player if it doesn't start.") + sdkNote);
-  try { localStorage.setItem("fb-record", spot.url); } catch {}
-  return true;
+  say((autoplay ? "Tuning in. Press play on the player if it doesn't start." : "Click the record to tune in.") + sdkNote);
 }
-let currentTitle = "";
 
+// ---- Shared "now playing": one record for the whole table (Supabase table now_playing) ----
+function renderNow(row) {
+  const art = $("nowArt");
+  if (!row) {
+    $("nowTitle").textContent = "Nothing on the turntable yet";
+    $("nowBy").textContent = user ? "Search below and put something on." : "Log in and put the first record on.";
+    art.style.backgroundImage = "";
+    return;
+  }
+  $("nowTitle").textContent = row.title || "Untitled record";
+  const who = row.profiles?.username;
+  $("nowBy").textContent = [row.artist, who ? `picked by ${who}` : ""].filter(Boolean).join(" \u00b7 ");
+  const a = safeArt(row.art_url);
+  art.style.backgroundImage = a ? `url("${a}")` : "";
+}
+
+async function loadNowPlaying(first = false) {
+  if (!sb) return;
+  await spotifyCallback;                      // make sure a returning Spotify login is saved before we start the player
+  const { data: row, error } = await sb.from("now_playing").select("*, profiles(username)").eq("id", 1).maybeSingle();
+  if (error) { if (first) say("The shared record isn't set up yet. Run jukebox.sql in Supabase."); return; }
+  renderNow(row);
+  if (!row) return;
+  if (current?.pick_id === row.pick_id) { current.started_at = row.started_at; return; }   // already on it (we picked it)
+  // Someone put on something new. If we're already tuned in, follow along; otherwise wait for a click (browsers block surprise audio).
+  await loadRecord(row, { autoplay: playing && !first });
+}
+
+async function pickRecord(item) {
+  if (!user) return openAuth();
+  closeResults(); $("songQuery").value = ""; $("songQuery").blur();
+  try { sdk.player?.activateElement(); } catch {}
+  const row = {
+    id: 1, pick_id: crypto.randomUUID(), spotify_uri: item.uri, spotify_type: item.type, spotify_url: item.url,
+    title: item.title, artist: item.artist || "", art_url: item.art || "", duration_ms: item.duration_ms ?? null,
+  };
+  const rec = { ...row, profiles: { username: usernameOf(user) } };
+  renderNow(rec);
+  const saving = sb.from("now_playing").upsert(row).select("started_at").single();   // everyone else sees it via realtime
+  await loadRecord(rec, { autoplay: true });
+  const { data: saved, error } = await saving;
+  if (error) say("Playing for you, but couldn't share it with everyone: " + error.message);
+  else rec.started_at = saved.started_at;
+}
+
+// ---- Song finder (Spotify search) ----
+const queryEl = $("songQuery"), resultsEl = $("songResults");
+let results = [], activeIdx = -1, searchTimer = 0, searchSeq = 0, fnMissing = false;
+
+const pickImg = (list, i) => list?.[i]?.url || list?.[0]?.url || "";
+const artistNames = list => (list || []).map(a => a.name).join(", ");
+function normalize(j) {
+  const tracks = (j.tracks?.items || []).filter(t => t?.id).slice(0, 6).map(t => ({
+    type: "track", uri: t.uri || `spotify:track:${t.id}`, url: t.external_urls?.spotify || `https://open.spotify.com/track/${t.id}`,
+    title: t.name, artist: artistNames(t.artists), art: pickImg(t.album?.images, 1), thumb: pickImg(t.album?.images, 2),
+    duration_ms: t.duration_ms || null,
+  }));
+  const albums = (j.albums?.items || []).filter(a => a?.id).slice(0, 3).map(a => ({
+    type: "album", uri: a.uri || `spotify:album:${a.id}`, url: a.external_urls?.spotify || `https://open.spotify.com/album/${a.id}`,
+    title: a.name, artist: artistNames(a.artists), art: pickImg(a.images, 1), thumb: pickImg(a.images, 2), duration_ms: null,
+  }));
+  return [...tracks, ...albums];
+}
+
+// Preferred: the spotify-search Supabase function (works for every visitor, keeps your Client Secret private).
+// Fallback: your own connected Spotify login.
+async function searchSpotify(q) {
+  if (sb && !fnMissing) {
+    const { data: j, error } = await sb.functions.invoke("spotify-search", { body: { q } });
+    if (!error && j && !j.error) return normalize(j);
+    if (error && (error.name === "FunctionsFetchError" || error.context?.status === 404)) fnMissing = true;
+    else throw new Error(j?.error || "Search hiccup. Try again.");
+  }
+  const token = await spotifyToken();
+  if (!token) throw new Error("Song search isn't set up yet. Deploy the spotify-search function, or connect Spotify below.");
+  const r = await fetch("https://api.spotify.com/v1/search?" + new URLSearchParams({ q, type: "track,album", limit: "6" }), {
+    headers: { Authorization: "Bearer " + token },
+  });
+  if (!r.ok) throw new Error(r.status === 429 ? "Spotify is busy. Try again in a moment." : "Spotify search failed.");
+  return normalize(await r.json());
+}
+
+function closeResults() {
+  resultsEl.hidden = true; activeIdx = -1;
+  queryEl.setAttribute("aria-expanded", "false"); queryEl.removeAttribute("aria-activedescendant");
+}
+function drawResults(msg) {
+  resultsEl.hidden = false; queryEl.setAttribute("aria-expanded", "true");
+  if (msg) { resultsEl.innerHTML = `<li class="msg" role="presentation">${esc(msg)}</li>`; return; }
+  resultsEl.innerHTML = results.map((r, i) => `
+    <li role="option" id="res${i}" data-i="${i}" aria-selected="false">
+      ${r.thumb ? `<img src="${esc(r.thumb)}" alt="" loading="lazy">` : `<span class="ph"></span>`}
+      <span class="res-text"><b>${esc(r.title)}</b><small>${esc(r.artist)}</small></span>
+      <span class="kind">${r.type === "track" ? "Song" : "Album"}</span>
+    </li>`).join("");
+}
+function setActive(i) {
+  activeIdx = i;
+  resultsEl.querySelectorAll("li[role=option]").forEach((li, n) => li.setAttribute("aria-selected", String(n === i)));
+  const li = $("res" + i);
+  if (li) { queryEl.setAttribute("aria-activedescendant", li.id); li.scrollIntoView({ block: "nearest" }); }
+}
+async function runSearch(q) {
+  const seq = ++searchSeq;
+  activeIdx = -1;
+  if (!results.length) drawResults("Searching...");
+  try {
+    const found = await searchSpotify(q);
+    if (seq !== searchSeq) return;
+    results = found;
+    drawResults(found.length ? "" : "Nothing found. Try another spelling.");
+  } catch (e) {
+    if (seq !== searchSeq) return;
+    results = [];
+    drawResults(e.message);
+  }
+}
+async function itemFromLink(spot) {
+  let title = "", art = "";
+  try {
+    const r = await fetch("https://open.spotify.com/oembed?url=" + encodeURIComponent(spot.url));
+    if (r.ok) { const j = await r.json(); title = j.title || ""; art = j.thumbnail_url || ""; }
+  } catch {}
+  return { type: spot.type, uri: spot.uri, url: spot.url, title: title || `A Spotify ${spot.type}`, artist: "", art, thumb: art, duration_ms: null };
+}
+
+queryEl.addEventListener("input", () => {
+  clearTimeout(searchTimer);
+  const q = queryEl.value.trim();
+  if (q.length < 2) { results = []; searchSeq++; closeResults(); return; }
+  if (parseSpotify(q)) { closeResults(); return; }          // a pasted link: Enter will use it
+  searchTimer = setTimeout(() => runSearch(q), 300);
+});
+queryEl.addEventListener("keydown", e => {
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    if (resultsEl.hidden || !results.length) return;
+    e.preventDefault();
+    setActive((activeIdx + (e.key === "ArrowDown" ? 1 : -1) + results.length) % results.length);
+  } else if (e.key === "Escape") closeResults();
+});
 $("songForm").addEventListener("submit", async e => {
   e.preventDefault();
-  try { sdk.player?.activateElement(); } catch {}
-  const ok = await loadRecord($("songUrl").value);
-  if (ok) $("songUrl").blur();
+  const q = queryEl.value.trim();
+  if (!q) return;
+  if (activeIdx >= 0 && results[activeIdx]) return pickRecord(results[activeIdx]);
+  const spot = parseSpotify(q);
+  if (spot) return pickRecord(await itemFromLink(spot));
+  clearTimeout(searchTimer); runSearch(q);
 });
+resultsEl.addEventListener("mousedown", e => e.preventDefault());     // keep focus in the box while clicking
+resultsEl.addEventListener("click", e => {
+  const li = e.target.closest("li[data-i]");
+  if (li) pickRecord(results[+li.dataset.i]);
+});
+document.addEventListener("click", e => { if (!$("finder").contains(e.target)) closeResults(); });
 
 setPlaying(false);
-// Bring back the last record (loaded but not auto-played)
-spotifyCallback.then(() => {
-  paintConnect();
-  try {
-    const saved = localStorage.getItem("fb-record");
-    if (saved) { $("songUrl").value = saved; loadRecord(saved, { autoplay: false }); }
-  } catch {}
-});
+renderNow(null);
 
 // ---- Start ----
 async function init() {
@@ -714,6 +853,8 @@ async function init() {
   sb.auth.onAuthStateChange((_evt, s) => { user = s?.user ?? null; render(); loadData(); });
   ["events", "rsvps", "notes", "profiles"].forEach(t =>
     sb.channel("fb-" + t).on("postgres_changes", { event: "*", schema: "public", table: t }, loadData).subscribe());
+  sb.channel("fb-now_playing").on("postgres_changes", { event: "*", schema: "public", table: "now_playing" }, () => loadNowPlaying()).subscribe();
+  loadNowPlaying(true);
 
   // Welcome popup once per visit for logged-out people
   let seen = false;
