@@ -314,3 +314,13 @@ dialog label[hidden] { display: none; }
 }
 .spotify-connect { display: block; margin-top: 6px; padding-left: 0; color: var(--matcha-deep); }
 @media (max-width: 800px) { .spotify-connect { margin-inline: auto; } }
+
+/* CREW PHOTOS */
+.avatar, img.avatar { width: 100px; height: 100px; aspect-ratio: 1; border-radius: 50%; border: 3px solid var(--cream); overflow: hidden; flex: none; }
+img.avatar { object-fit: cover; display: block; margin: 0 auto 8px; background: var(--cream-2); }
+.member .name-input {
+  width: 100%; font-family: var(--body); font-size: .95rem; padding: 6px 10px; text-align: center;
+  background: var(--cream-2); color: var(--ink); border: 2px solid var(--cream); border-radius: 8px;
+}
+.member .error { color: #f0b49f; min-height: 0; }
+.member .photo-actions { display: flex; justify-content: center; gap: 8px; }

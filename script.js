@@ -6,7 +6,7 @@ const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 
 // ---- 1b. Spotify (full songs). Client ID from developer.spotify.com/dashboard ----
 // The Client ID is public and safe here. NEVER paste the Client Secret anywhere in this site.
-const SPOTIFY_CLIENT_ID = "9fd52c0851e6429cabe538fc6d4682d2";
+const SPOTIFY_CLIENT_ID = "PASTE_YOUR_SPOTIFY_CLIENT_ID";
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -29,6 +29,7 @@ if (configured) {
 
 let user = null;
 let editingBio = false, bioDraft = null;
+let editingName = false, nameDraft = null;
 let data = { events: [], rsvps: [], notes: [], profiles: [] };
 const usernameOf = u => u?.user_metadata?.username || "friend";
 
@@ -39,7 +40,7 @@ async function loadData() {
     sb.from("events").select("*").order("starts_at"),
     sb.from("rsvps").select("event_id, user_id, profiles(username)"),
     sb.from("notes").select("id, body, created_at, user_id, media_url, media_type, media_path, profiles(username)").order("created_at", { ascending: false }).limit(12),
-    sb.from("profiles").select("id, username, bio").order("created_at"),
+    sb.from("profiles").select("id, username, bio, avatar_url").order("created_at"),
   ]);
   const failed = [ev, rs, nt, pr].find(r => r.error);
   if (failed && /jwt expired|invalid jwt/i.test(failed.error.message) && !loadData.retried) {
@@ -107,10 +108,22 @@ function render() {
       body = `<p class="bio ${p.bio ? "" : "empty"}">${esc(p.bio || (mine ? "No description yet." : "Mysterious."))}</p>
         ${mine ? `<button class="link-btn" id="bioEdit" type="button">Edit description</button>` : ""}`;
     }
+    const photo = mine ? `<div class="photo-actions">
+        <button class="link-btn" id="avatarChange" type="button">${p.avatar_url ? "Change photo" : "Add photo"}</button>
+        ${p.avatar_url ? `<button class="link-btn" id="avatarRemove" type="button">Remove</button>` : ""}
+      </div>` : "";
+    const avatar = p.avatar_url
+      ? `<img class="avatar" src="${esc(p.avatar_url)}" alt="${esc(p.username)}'s photo" loading="lazy">`
+      : `<div class="avatar" style="background:${colorFor(p.username)}">${esc(p.username[0].toUpperCase())}</div>`;
     return `
     <div class="member">
-      <div class="avatar" style="background:${colorFor(p.username)}">${esc(p.username[0].toUpperCase())}</div>
-      ${esc(p.username)}
+      ${avatar}
+      ${mine && editingName
+        ? `<input id="nameInput" class="name-input" maxlength="16" value="${esc(nameDraft ?? p.username)}" aria-label="Username">
+           <p class="error" id="nameError" role="alert"></p>
+           <div class="bio-actions"><button class="btn tiny" id="nameSave" type="button">Save</button><button class="link-btn" id="nameCancel" type="button">Cancel</button></div>`
+        : `${esc(p.username)}${mine ? `<br><button class="link-btn" id="nameEdit" type="button">Change username</button>` : ""}`}
+      ${photo}
       ${body}
     </div>`;
   }).join("");
@@ -123,6 +136,31 @@ function render() {
     const { error } = await sb.from("profiles").update({ bio }).eq("id", user.id);
     if (error) { alert("Couldn't save: " + error.message); e.target.disabled = false; return; }
     editingBio = false; bioDraft = null;
+    loadData();
+  });
+  on("avatarChange", () => $("avatarFile").click());
+  on("nameEdit", () => { editingName = true; nameDraft = null; render(); $("nameInput")?.focus(); });
+  on("nameCancel", () => { editingName = false; nameDraft = null; render(); });
+  on("nameSave", async e => {
+    const name = $("nameInput").value.trim(), err = $("nameError");
+    if (name.length < 2 || name.length > 16) { err.textContent = "Use 2 to 16 characters."; return; }
+    if (name === usernameOf(user)) { editingName = false; render(); return; }
+    e.target.disabled = true; err.textContent = "";
+    const { error } = await sb.from("profiles").update({ username: name }).eq("id", user.id);
+    if (error) { err.textContent = /duplicate|unique|violates/i.test(error.message) ? "That username is taken." : "Couldn't save: " + error.message; e.target.disabled = false; return; }
+    await sb.auth.updateUser({ data: { username: name } });   // keeps the "Hi, name" header in sync
+    editingName = false; nameDraft = null;
+    loadData();
+  });
+  const ni = $("nameInput");
+  if (ni) ni.addEventListener("input", () => { nameDraft = ni.value; });
+  on("avatarRemove", async e => {
+    const me = data.profiles.find(x => x.id === user.id);
+    if (!me?.avatar_url || !confirm("Remove your photo?")) return;
+    e.target.disabled = true;
+    const { error } = await sb.from("profiles").update({ avatar_url: null }).eq("id", user.id);
+    if (error) { alert("Couldn't remove it: " + error.message); e.target.disabled = false; return; }
+    dropOldAvatar(me.avatar_url);
     loadData();
   });
   const bi = $("bioInput");
@@ -164,6 +202,40 @@ function render() {
   $("eventGate").hidden = !!user;
   if (user && !$("evHost").value) $("evHost").value = usernameOf(user);
 }
+
+// ---- Profile photo ----
+const AVATAR_PX = 320;
+async function squareJpeg(file) {
+  const bmp = await createImageBitmap(file);
+  const side = Math.min(bmp.width, bmp.height);
+  const c = document.createElement("canvas"); c.width = c.height = AVATAR_PX;
+  c.getContext("2d").drawImage(bmp, (bmp.width - side) / 2, (bmp.height - side) / 2, side, side, 0, 0, AVATAR_PX, AVATAR_PX);
+  return new Promise((res, rej) => c.toBlob(b => b ? res(b) : rej(new Error("Couldn't read that image.")), "image/jpeg", .85));
+}
+function dropOldAvatar(url) {
+  const i = url ? url.indexOf("/wall/") : -1;
+  if (i > -1) sb.storage.from("wall").remove([decodeURIComponent(url.slice(i + 6).split("?")[0])]);
+}
+$("avatarFile").addEventListener("change", async e => {
+  const file = e.target.files[0];
+  e.target.value = "";
+  if (!file || !user) return;
+  if (!file.type.startsWith("image/")) { alert("Pick an image file."); return; }
+  const btn = $("avatarChange");
+  if (btn) { btn.disabled = true; btn.textContent = "Uploading..."; }
+  try {
+    const blob = await squareJpeg(file);
+    const path = `${user.id}/avatar-${Date.now()}.jpg`;
+    const up = await sb.storage.from("wall").upload(path, blob, { contentType: "image/jpeg" });
+    if (up.error) throw up.error;
+    const url = sb.storage.from("wall").getPublicUrl(path).data.publicUrl;
+    const old = data.profiles.find(x => x.id === user.id)?.avatar_url;
+    const { error } = await sb.from("profiles").update({ avatar_url: url }).eq("id", user.id);
+    if (error) { await sb.storage.from("wall").remove([path]); throw error; }
+    dropOldAvatar(old);
+  } catch (err) { alert("Couldn't update your photo: " + err.message); }
+  loadData();
+});
 
 // ---- Auth popup ----
 const dialog = $("authDialog");
