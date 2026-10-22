@@ -6,7 +6,7 @@ const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 
 // ---- 1b. Spotify (full songs). Client ID from developer.spotify.com/dashboard ----
 // The Client ID is public and safe here. NEVER paste the Client Secret anywhere in this site.
-const SPOTIFY_CLIENT_ID = "PASTE_YOUR_SPOTIFY_CLIENT_ID";
+const SPOTIFY_CLIENT_ID = "9fd52c0851e6429cabe538fc6d4682d2";
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
